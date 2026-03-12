@@ -1,0 +1,3 @@
+/home/julia/Desktop/DGIIM/2025/MH/P1/build/CMakeFiles/main.dir
+/home/julia/Desktop/DGIIM/2025/MH/P1/build/CMakeFiles/edit_cache.dir
+/home/julia/Desktop/DGIIM/2025/MH/P1/build/CMakeFiles/rebuild_cache.dir

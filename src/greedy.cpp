@@ -3,6 +3,7 @@
 #include <iostream>
 #include <pincrem.h>
 
+/* comentario */
 using namespace std;
 
 template <class T> void print_vector(string name, const vector<T> &sol) {
