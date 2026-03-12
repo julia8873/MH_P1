@@ -208,51 +208,68 @@ void ParProblem::updateCentroids(vector<vector<double>>& centroids, const tSolut
 
 // si tenemos la solución virtual (a,b), calculamos la desv del cluster sol[a] y la del cluster b
 // luego tendremos que calcular las de los mismos clusters pero aplicados el cambio
-double ParProblem::calcular_nuevo_menos_actual(const tSolution<int>& sol, int pos, int valor, const vector<int>& num_elem) {
-    int old_c_id = sol[pos]; // El cluster actual del elemento 'a'
-    int new_c_id = valor;    // El nuevo cluster 'b'
-
-    if (old_c_id == new_c_id) return 0.0;
+double ParProblem::calcular_nuevo_menos_actual(const tSolution<int>& sol, int pos, int nuevo_c, const vector<int>& num_elem) {
+    int antiguo_c = sol[pos];
+    if (antiguo_c == nuevo_c) return 0.0;
 
     // 1. Diferencia en restricciones (infeasibility)
-    int vios_viejas = countInstanceViolations(pos, old_c_id, sol);
-    int vios_nuevas = countInstanceViolations(pos, new_c_id, sol);
+    int vios_viejas = countInstanceViolations(pos, antiguo_c, sol);
+    int vios_nuevas = countInstanceViolations(pos, nuevo_c, sol);
     double delta_vios = static_cast<double>(vios_nuevas - vios_viejas) * lambda;
 
-    // 2. Clasificación de índices para los clusters afectados
-    vector<int> idx_old_v, idx_new_v, idx_old_n, idx_new_n;
-    
+    // 2. Variables para centroides y desviaciones
+    int n_antiguo = num_elem[antiguo_c - 1];
+    int n_nuevo = num_elem[nuevo_c - 1];
+    int dims = data[0].size();
+
+    vector<double> mu_antiguo_v(dims, 0.0), mu_nuevo_v(dims, 0.0);
+    vector<double> mu_antiguo_n(dims, 0.0), mu_nuevo_n(dims, 0.0);
+
+    // 3. Cálculo de centroides sin vectores temporales
+    // Iteramos una sola vez sobre el dataset para calcular las sumas de los centroides
     for (int i = 0; i < size; ++i) {
-        if (sol[i] == old_c_id) {
-            idx_old_v.push_back(i);
-            if (i != pos) idx_old_n.push_back(i); // El 'viejo' cluster tras el cambio
-        } else if (sol[i] == new_c_id) {
-            idx_new_v.push_back(i);
-            idx_new_n.push_back(i); // El 'nuevo' cluster (irá recibiendo el elemento)
+        if (sol[i] == antiguo_c) {
+            for (int d = 0; d < dims; ++d) mu_antiguo_v[d] += data[i][d];
+        } else if (sol[i] == nuevo_c) {
+            for (int d = 0; d < dims; ++d) mu_nuevo_v[d] += data[i][d];
         }
     }
-    idx_new_n.push_back(pos); // Añadimos el elemento al cluster de destino
 
-    // 3. Cálculo de estados actuales (Antes del cambio)
-    vector<double> centroid_old_v = calculateCentroid(idx_old_v);
-    vector<double> centroid_new_v = calculateCentroid(idx_new_v);
-    double dev_old_v = calculateClusterDeviation(idx_old_v, centroid_old_v);
-    double dev_new_v = calculateClusterDeviation(idx_new_v, centroid_new_v);
+    // Calculamos mu_antiguo_n (quitando el elemento) y mu_nuevo_n (añadiéndolo)
+    for (int d = 0; d < dims; ++d) {
+        mu_antiguo_n[d] = (mu_antiguo_v[d] - data[pos][d]) / (n_antiguo - 1);
+        mu_nuevo_n[d] = (mu_nuevo_v[d] + data[pos][d]) / (n_nuevo + 1);
+        
+        mu_antiguo_v[d] /= n_antiguo;
+        mu_nuevo_v[d] /= n_nuevo;
+    }
 
-    // 4. Cálculo de estados virtuales (Después del cambio)
-    vector<double> centroid_old_n = calculateCentroid(idx_old_n);
-    vector<double> centroid_new_n = calculateCentroid(idx_new_n);
-    double dev_old_n = calculateClusterDeviation(idx_old_n, centroid_old_n);
-    double dev_new_n = calculateClusterDeviation(idx_new_n, centroid_new_n);
+    // 4. Cálculo de desviaciones intra-cluster (C)
+    double dev_ant_v = 0, dev_nue_v = 0, dev_ant_n = 0, dev_nue_n = 0;
 
-    // 5. Cálculo del incremento de la desviación total
-    // La desviación total del problema es la media de las desviaciones de cada cluster:
-    // Desviacion = (1/k) * sum(dist_intra_i)
-    double delta_desviacion = (dev_old_n + dev_new_n - dev_old_v - dev_new_v) / static_cast<double>(k);
+    for (int i = 0; i < size; ++i) {
+        if (sol[i] == antiguo_c) {
+            dev_ant_v += distanceToExplicitCentroid(i, mu_antiguo_v);
+            if (i != pos) dev_ant_n += distanceToExplicitCentroid(i, mu_antiguo_n);
+        } else if (sol[i] == nuevo_c) {
+            dev_nue_v += distanceToExplicitCentroid(i, mu_nuevo_v);
+            dev_nue_n += distanceToExplicitCentroid(i, mu_nuevo_n);
+        }
+    }
+    // Añadimos el elemento a la desviación del nuevo cluster
+    dev_nue_n += distanceToExplicitCentroid(pos, mu_nuevo_n);
+
+    // Promediamos las desviaciones por el número de elementos de cada estado
+    double d_ant_v = dev_ant_v / n_antiguo;
+    double d_nue_v = dev_nue_v / n_nuevo;
+    double d_ant_n = dev_ant_n / (n_antiguo - 1);
+    double d_nue_n = dev_nue_n / (n_nuevo + 1);
+
+    // 5. Delta de la desviación general
+    double delta_desviacion = (d_ant_n + d_nue_n - d_ant_v - d_nue_v) / static_cast<double>(k);
 
     return delta_desviacion + delta_vios;
 }
-
 // ###################### Funciones auxiliares ##################################
 
 void ParProblem::calculateLambda(){
@@ -363,4 +380,25 @@ double ParProblem::calculateClusterDeviation(const vector<int>& indices, const v
     }
     
     return total_dist / indices.size();
+}
+
+
+int ParProblem::countViolations(const std::vector<int>& solution) {
+    int violations = 0;
+
+    for (const auto& res : constraints) {
+        // ML: Deben estar en el mismo cluster. Se viola si son distintos. [cite: 199, 833]
+        if (res.type == 1) {
+            if (solution[res.i] != solution[res.j]) {
+                violations++;
+            }
+        }
+        // CL: No pueden estar en el mismo cluster. Se viola si son iguales. [cite: 200, 833]
+        else if (res.type == -1) {
+            if (solution[res.i] == solution[res.j]) {
+                violations++;
+            }
+        }
+    }
+    return violations;
 }

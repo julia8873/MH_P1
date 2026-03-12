@@ -67,6 +67,9 @@ public:
     int getK(){return k;}
     std::vector<Constraint> getConstraints(){return constraints;}
     double getLambda() const { return lambda; }
+    int getNumRestricciones() const { 
+        return constraints.size(); 
+    }
 
     // Greedy
     const std::vector<double>& getDataInstance(int id) const { return data[id]; }
@@ -77,11 +80,11 @@ public:
     
     // Búsqueda Local
     double calcular_nuevo_menos_actual(const tSolution<int>& sol, int idx, int nuevo_c, const std::vector<int>& num_elem);
-private:
+//private:
     // ###################### Funciones auxiliares ##################################
     void calculateLambda();
     double calculateDeviation(const tSolution<int>& sol);
     std::vector<double> calculateCentroid(const std::vector<int>& indices);
     double calculateClusterDeviation(const std::vector<int>& indices, const std::vector<double>& centroid);
-
+    int countViolations(const std::vector<int>& solution);
 };
