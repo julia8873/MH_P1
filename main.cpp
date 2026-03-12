@@ -9,6 +9,8 @@
 // All all algorithms
 #include "greedy.h"
 #include "randomsearch.h"
+#include "localsearch.h"
+#include "localsearchnooptimization.h"
 
 using namespace std;
 int main(int argc, char *argv[]) {
@@ -25,7 +27,9 @@ int main(int argc, char *argv[]) {
 
   // Create the algorithms
   RandomSearch<int> ralg = RandomSearch<int>();
-  // GreedySearch rgreedy = GreedySearch();
+  GreedySearch rgreedy = GreedySearch();
+  LocalSearch rlocalsearch = LocalSearch();
+  LocalSearchNoOptimization rlocalsearchNoOptimization = LocalSearchNoOptimization();
   
   // Create the specific problem
   // Supongamos k=7 para el dataset de Zoo y cargamos los archivos
@@ -36,8 +40,8 @@ int main(int argc, char *argv[]) {
   // Solve using evaluations
   // Aquí metemos los algoritmos en el vector para ejecutarlos en bucle
   vector<pair<string, MH<int> *> > algoritmos = {
-    make_pair("RandomSearch", &ralg)
-    // make_pair("Greedy", &rgreedy) 
+    make_pair("RandomSearch", &ralg), make_pair("Greedy", &rgreedy), make_pair("LocalSearch", &rlocalsearch),
+    make_pair("LocalSearchNoOptimization", &rlocalsearchNoOptimization)
   };
   
   Problem<int> *problem = dynamic_cast<Problem<int> *>(&rproblem);

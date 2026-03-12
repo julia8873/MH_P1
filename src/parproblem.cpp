@@ -42,7 +42,7 @@ tSolution<int> ParProblem::createSolution() {
     
     // Creamos un vector de índices [0, 1, 2, ..., size-1]
     // cada numero es un animal pe
-    std::vector<int> indices(size);
+    vector<int> indices(size);
     for(int i = 0; i < size; ++i) indices[i] = i;
 
     // Barajamos los índices para asignar aleatoriamente los k primeros a cada cluster
@@ -133,6 +133,126 @@ void ParProblem::setSeed(unsigned int s) {
     global_seed_counter = s;
 }
 
+// Contar las violaciones si moviesemos el elemento de instaceId al clusterId
+int ParProblem::countInstanceViolations(int instanceId, int clusterId, const tSolution<int>& solution) {
+    int violations = 0;
+    
+    for (const auto& constraint : constraints) {
+        // Buscamos restricciones que afecten a la instancia actual
+        if (constraint.i == instanceId || constraint.j == instanceId) {
+            int otherId = (constraint.i == instanceId) ? constraint.j : constraint.i;
+            
+            // Solo evaluamos si el otro elemento ya tiene un grupo asignado
+            if (solution[otherId] != 0) {
+                if (constraint.type == 1) { // Must-Link
+                    // Si deben estar juntos pero el otro está en un cluster distinto
+                    if (clusterId != solution[otherId]) {
+                        violations++;
+                    }
+                } else { // Cannot-Link
+                    // Si no pueden estar juntos pero el otro está en el mismo cluster
+                    if (clusterId == solution[otherId]) {
+                        violations++;
+                    }
+                }
+            }
+        }
+    }
+    
+    return violations;
+}
+
+double ParProblem::distanceToExplicitCentroid(int instanceId, const vector<double>& centroid) {
+    double sum = 0.0;
+    const auto& instanceData = data[instanceId];
+    
+    // Calculamos la suma de los cuadrados de las diferencias
+    for (size_t a = 0; a < instanceData.size(); ++a) {
+        double diff = instanceData[a] - centroid[a];
+        sum += diff * diff;
+    }
+    
+    return sqrt(sum);
+}
+
+void ParProblem::updateCentroids(vector<vector<double>>& centroids, const tSolution<int>& solution) {
+    size_t n_atrib = data[0].size();
+
+    // Reiniciar centroides
+    centroids.assign(k, vector<double>(n_atrib, 0.0));
+
+    // Contador de elementos por cluster
+    vector<int> count(k, 0);
+
+    // 1. Acumular sumas
+    for (size_t i = 0; i < solution.size(); ++i) {
+        int cluster = solution[i] - 1;
+        count[cluster]++;
+
+        const auto& instance = data[i];
+        for (size_t j = 0; j < n_atrib; ++j) {
+            centroids[cluster][j] += instance[j];
+        }
+    }
+
+    // 2. Dividir para obtener la media
+    for (int c = 0; c < k; ++c) {
+        if (count[c] > 0) {
+            for (size_t j = 0; j < n_atrib; ++j) {
+                centroids[c][j] /= count[c];
+            }
+        }
+    }
+}
+
+
+// si tenemos la solución virtual (a,b), calculamos la desv del cluster sol[a] y la del cluster b
+// luego tendremos que calcular las de los mismos clusters pero aplicados el cambio
+double ParProblem::calcular_nuevo_menos_actual(const tSolution<int>& sol, int pos, int valor, const vector<int>& num_elem) {
+    int old_c_id = sol[pos]; // El cluster actual del elemento 'a'
+    int new_c_id = valor;    // El nuevo cluster 'b'
+
+    if (old_c_id == new_c_id) return 0.0;
+
+    // 1. Diferencia en restricciones (infeasibility)
+    int vios_viejas = countInstanceViolations(pos, old_c_id, sol);
+    int vios_nuevas = countInstanceViolations(pos, new_c_id, sol);
+    double delta_vios = static_cast<double>(vios_nuevas - vios_viejas) * lambda;
+
+    // 2. Clasificación de índices para los clusters afectados
+    vector<int> idx_old_v, idx_new_v, idx_old_n, idx_new_n;
+    
+    for (int i = 0; i < size; ++i) {
+        if (sol[i] == old_c_id) {
+            idx_old_v.push_back(i);
+            if (i != pos) idx_old_n.push_back(i); // El 'viejo' cluster tras el cambio
+        } else if (sol[i] == new_c_id) {
+            idx_new_v.push_back(i);
+            idx_new_n.push_back(i); // El 'nuevo' cluster (irá recibiendo el elemento)
+        }
+    }
+    idx_new_n.push_back(pos); // Añadimos el elemento al cluster de destino
+
+    // 3. Cálculo de estados actuales (Antes del cambio)
+    vector<double> centroid_old_v = calculateCentroid(idx_old_v);
+    vector<double> centroid_new_v = calculateCentroid(idx_new_v);
+    double dev_old_v = calculateClusterDeviation(idx_old_v, centroid_old_v);
+    double dev_new_v = calculateClusterDeviation(idx_new_v, centroid_new_v);
+
+    // 4. Cálculo de estados virtuales (Después del cambio)
+    vector<double> centroid_old_n = calculateCentroid(idx_old_n);
+    vector<double> centroid_new_n = calculateCentroid(idx_new_n);
+    double dev_old_n = calculateClusterDeviation(idx_old_n, centroid_old_n);
+    double dev_new_n = calculateClusterDeviation(idx_new_n, centroid_new_n);
+
+    // 5. Cálculo del incremento de la desviación total
+    // La desviación total del problema es la media de las desviaciones de cada cluster:
+    // Desviacion = (1/k) * sum(dist_intra_i)
+    double delta_desviacion = (dev_old_n + dev_new_n - dev_old_v - dev_new_v) / static_cast<double>(k);
+
+    return delta_desviacion + delta_vios;
+}
+
 // ###################### Funciones auxiliares ##################################
 
 void ParProblem::calculateLambda(){
@@ -186,23 +306,8 @@ double ParProblem::calculateDeviation(const tSolution<int>& sol){
     // Vector de centroides [mu_1, mu_2, ..., mu_k]
     vector<vector<double>> centroides(k, vector<double>(n_atrib, 0.0));
 
-    for (int i = 0; i< k; ++i) {
-        size_t num_elementos = indicesPorCluster[i].size();
-        if (num_elementos > 0) {
-            // Sumamos los vectores de las instancias que pertenecen a este cluster
-            for (size_t idx : indicesPorCluster[i]) {
-                for (size_t j = 0; j< n_atrib; ++j) {
-                    centroides[i][j] += data[idx][j];
-                }
-            }
-
-            // Hacemos el vector media
-            for (size_t j = 0; j< n_atrib; ++j) {
-                centroides[i][j] /= static_cast<double>(num_elementos);
-            }
-        }
-    }
-
+    updateCentroids(centroides, sol);
+    
     // 2. Calcular la distancia intracluster
     // (1/|C_i|)*sum(||x_j-mu_i||)
     vector<double> dist_intra_cluster(k);
@@ -229,4 +334,33 @@ double ParProblem::calculateDeviation(const tSolution<int>& sol){
     desviacion /= k;
 
     return desviacion;
+}
+
+
+vector<double> ParProblem::calculateCentroid(const vector<int>& indices) {
+    size_t n_atrib = data[0].size();
+    vector<double> centroid(n_atrib, 0.0);
+
+    if (indices.empty()) return centroid;
+
+    for (int idx : indices) {
+        for (size_t j = 0; j < n_atrib; ++j) {
+            centroid[j] += data[idx][j];
+        }
+    }
+
+    for (double& val : centroid) val /= indices.size();
+    
+    return centroid;
+}
+
+double ParProblem::calculateClusterDeviation(const vector<int>& indices, const vector<double>& centroid) {
+    if (indices.empty()) return 0.0;
+    
+    double total_dist = 0.0;
+    for (int idx : indices) {
+        total_dist += distanceToExplicitCentroid(idx, centroid);
+    }
+    
+    return total_dist / indices.size();
 }

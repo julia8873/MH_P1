@@ -60,10 +60,28 @@ public:
     // ###################### Funciones de esta clase ##################################
     void loadData(const std::string& dataPath, const std::string& constPath);
 
+    // MÉTODOS SET
     void setSeed(unsigned int s);
+
+    // MÉTODOS GET
+    int getK(){return k;}
+    std::vector<Constraint> getConstraints(){return constraints;}
+    double getLambda() const { return lambda; }
+
+    // Greedy
+    const std::vector<double>& getDataInstance(int id) const { return data[id]; }
+    
+    int countInstanceViolations(int elem_id, int cluster_id, const tSolution<int>& sol);
+    double distanceToExplicitCentroid(int instanceId, const std::vector<double>& centroid);
+    void updateCentroids(std::vector<std::vector<double>>& centroids, const tSolution<int>& solution);
+    
+    // Búsqueda Local
+    double calcular_nuevo_menos_actual(const tSolution<int>& sol, int idx, int nuevo_c, const std::vector<int>& num_elem);
 private:
     // ###################### Funciones auxiliares ##################################
     void calculateLambda();
     double calculateDeviation(const tSolution<int>& sol);
+    std::vector<double> calculateCentroid(const std::vector<int>& indices);
+    double calculateClusterDeviation(const std::vector<int>& indices, const std::vector<double>& centroid);
 
 };

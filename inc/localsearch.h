@@ -4,7 +4,7 @@
 using namespace std;
 
 /**
- * Implementation of the Greedy metaheuristic
+ * Implementation of the Local Search metaheuristic
  *
  * @see MH
  * @see Problem
@@ -14,14 +14,13 @@ using MHInt = MH<int>;
 using ProblemInt = Problem<int>;
 using ResultMHInt = ResultMH<int>;
 
-class GreedySearch : public MHInt {
+class LocalSearch : public MHInt {
 
 public:
-  GreedySearch() : MH() {}
-  virtual ~GreedySearch() {}
+  LocalSearch() : MH() {}
+  virtual ~LocalSearch() {}
   // Implement the MH interface methods
   /**
-   * Greedy Algorithm
    *
    * @param problem The problem to be optimized
    * @param maxevals Maximum number of evaluations allowed
