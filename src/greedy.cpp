@@ -53,5 +53,5 @@ ResultMHInt GreedySearch::optimize(ProblemInt &problem, int maxevals) {
   }
   
   tFitness fitness = problem.fitness(sol);
-  return ResultMH(sol, fitness, 1);
+  return ResultMH<int>(sol, fitness, 1);
 }

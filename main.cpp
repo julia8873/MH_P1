@@ -36,7 +36,7 @@ int main(int argc, char *argv[]) {
     Random::seed(seed);
     cout << algoritmos[i].first << endl;
     auto mh = algoritmos[i].second;
-    ResultMH result = mh->optimize(*problem, 1000);
+    ResultMH<int> result = mh->optimize(*problem, 1000);
     cout << "Best solution: " << result.solution << endl;
     cout << "Best fitness: " << result.fitness << endl;
     cout << "Evaluations: " << result.evaluations << endl;
