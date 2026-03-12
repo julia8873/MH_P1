@@ -20,7 +20,7 @@ public:
    * Create random solutions until maxevals has been achieved, and returns the
    * best one.
    *
-   * @param problem The problem to be optimized
+   * @param problem The problem to be optimized (ParProblem)
    * @param maxevals Maximum number of evaluations allowed
    * @return A pair containing the best solution found and its fitness
    */

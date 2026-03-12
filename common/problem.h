@@ -22,7 +22,7 @@ class SolutionFactoringInfo {
 /**
  * Problem class to solve the given problem in metaheuristic.
  *
- * @author your_name
+ * @author Julia Miralles
  * @version 1.0
  */
 template<typename tDomain>
