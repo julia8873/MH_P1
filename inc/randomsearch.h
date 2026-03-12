@@ -39,6 +39,6 @@ public:
       }
     }
 
-    return ResultMH(best, best_fitness, maxevals);
+    return ResultMH<int>(best, best_fitness, maxevals);
   }
 };
