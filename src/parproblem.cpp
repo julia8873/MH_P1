@@ -109,8 +109,16 @@ void ParProblem::loadData(const string& dataPath, const string& constPath) {
     }
     size = data.size();
 
+    // MEJORA: Inicializar el vector de restricciones por instancia (lista de adyacencia)
+    // Usamos el nombre 'Constraint' para coincidir con tu struct de la cabecera
+    instanceConstraints.assign(size, vector<Constraint>());
+
     // leer las restricciones
     ifstream constFile(constPath);
+    if (!constFile.is_open()) {
+        cerr << "ERROR: No se pudo abrir el archivo de restricciones en: " << constPath << endl;
+        exit(1); 
+    }
     int row = 0;
     while (getline(constFile, line)) {
         stringstream ss(line);
@@ -119,7 +127,12 @@ void ParProblem::loadData(const string& dataPath, const string& constPath) {
             int val = stoi(cell);
             // Guardamos la parte triangular superior de la matriz
             if (row < col && val != 0) {
-                constraints.push_back({row, col, val});
+                Constraint cons = {row, col, val};
+                constraints.push_back(cons);
+                
+                // MEJORA: Guardamos en la lista de adyacencia de ambos elementos
+                instanceConstraints[row].push_back(cons);
+                instanceConstraints[col].push_back(cons);
             }
             col++;
         }
@@ -137,23 +150,21 @@ void ParProblem::setSeed(unsigned int s) {
 int ParProblem::countInstanceViolations(int instanceId, int clusterId, const tSolution<int>& solution) {
     int violations = 0;
     
-    for (const auto& constraint : constraints) {
-        // Buscamos restricciones que afecten a la instancia actual
-        if (constraint.i == instanceId || constraint.j == instanceId) {
-            int otherId = (constraint.i == instanceId) ? constraint.j : constraint.i;
-            
-            // Solo evaluamos si el otro elemento ya tiene un grupo asignado
-            if (solution[otherId] != 0) {
-                if (constraint.type == 1) { // Must-Link
-                    // Si deben estar juntos pero el otro está en un cluster distinto
-                    if (clusterId != solution[otherId]) {
-                        violations++;
-                    }
-                } else { // Cannot-Link
-                    // Si no pueden estar juntos pero el otro está en el mismo cluster
-                    if (clusterId == solution[otherId]) {
-                        violations++;
-                    }
+    // MEJORA: Recorremos solo las restricciones de esta instancia específica
+    for (const auto& constraint : instanceConstraints[instanceId]) {
+        int otherId = (constraint.i == instanceId) ? constraint.j : constraint.i;
+        
+        // Solo evaluamos si el otro elemento ya tiene un grupo asignado
+        if (solution[otherId] != 0) {
+            if (constraint.type == 1) { // Must-Link
+                // Si deben estar juntos pero el otro está en un cluster distinto
+                if (clusterId != solution[otherId]) {
+                    violations++;
+                }
+            } else { // Cannot-Link
+                // Si no pueden estar juntos pero el otro está en el mismo cluster
+                if (clusterId == solution[otherId]) {
+                    violations++;
                 }
             }
         }
@@ -212,63 +223,59 @@ double ParProblem::calcular_nuevo_menos_actual(const tSolution<int>& sol, int po
     int antiguo_c = sol[pos];
     if (antiguo_c == nuevo_c) return 0.0;
 
-    // 1. Diferencia en restricciones (infeasibility)
-    int vios_viejas = countInstanceViolations(pos, antiguo_c, sol);
-    int vios_nuevas = countInstanceViolations(pos, nuevo_c, sol);
-    double delta_vios = static_cast<double>(vios_nuevas - vios_viejas) * lambda;
+    int violaciones_antes = countInstanceViolations(pos, antiguo_c, sol);
+    int violaciones_nuevas = countInstanceViolations(pos, nuevo_c, sol);
+    double dif_viol_antes_nuevas = static_cast<double>(violaciones_nuevas - violaciones_antes) * lambda;
 
-    // 2. Variables para centroides y desviaciones
-    int n_antiguo = num_elem[antiguo_c - 1];
-    int n_nuevo = num_elem[nuevo_c - 1];
+
+    int valor_antes = num_elem[antiguo_c - 1];
+    int valor_nuevo = num_elem[nuevo_c - 1];
     int dims = data[0].size();
+    // centroides antes de aplicar cambio
+    vector<double> mu_a_antes(dims, 0.0), mu_b_antes(dims, 0.0);
+    //centroides despues de aplicar cambio
+    vector<double> mu_a_despues(dims, 0.0), mu_b_despues(dims, 0.0);
 
-    vector<double> mu_antiguo_v(dims, 0.0), mu_nuevo_v(dims, 0.0);
-    vector<double> mu_antiguo_n(dims, 0.0), mu_nuevo_n(dims, 0.0);
-
-    // 3. Cálculo de centroides sin vectores temporales
-    // Iteramos una sola vez sobre el dataset para calcular las sumas de los centroides
+    // calcular centroides antes
     for (int i = 0; i < size; ++i) {
         if (sol[i] == antiguo_c) {
-            for (int d = 0; d < dims; ++d) mu_antiguo_v[d] += data[i][d];
+            for (int d = 0; d < dims; ++d) mu_a_antes[d] += data[i][d];
         } else if (sol[i] == nuevo_c) {
-            for (int d = 0; d < dims; ++d) mu_nuevo_v[d] += data[i][d];
+            for (int d = 0; d < dims; ++d) mu_b_antes[d] += data[i][d];
         }
     }
 
-    // Calculamos mu_antiguo_n (quitando el elemento) y mu_nuevo_n (añadiéndolo)
+    // calcular centroides después
     for (int d = 0; d < dims; ++d) {
-        mu_antiguo_n[d] = (mu_antiguo_v[d] - data[pos][d]) / (n_antiguo - 1);
-        mu_nuevo_n[d] = (mu_nuevo_v[d] + data[pos][d]) / (n_nuevo + 1);
-        
-        mu_antiguo_v[d] /= n_antiguo;
-        mu_nuevo_v[d] /= n_nuevo;
+        mu_a_antes[d] /= valor_antes;
+        mu_b_antes[d] /= valor_nuevo;
+        mu_a_despues[d] = (mu_a_antes[d] * valor_antes - data[pos][d]) / (valor_antes - 1);
+        mu_b_despues[d] = (mu_b_antes[d] * valor_nuevo + data[pos][d]) / (valor_nuevo + 1);
     }
 
-    // 4. Cálculo de desviaciones intra-cluster (C)
-    double dev_ant_v = 0, dev_nue_v = 0, dev_ant_n = 0, dev_nue_n = 0;
-
+    // desviaciones intra-cluster
+    double desv_a_antes = 0, desv_a_despues = 0, desv_b_antes = 0, desv_b_despues = 0;
     for (int i = 0; i < size; ++i) {
         if (sol[i] == antiguo_c) {
-            dev_ant_v += distanceToExplicitCentroid(i, mu_antiguo_v);
-            if (i != pos) dev_ant_n += distanceToExplicitCentroid(i, mu_antiguo_n);
+            desv_a_antes += distanceToExplicitCentroid(i, mu_a_antes);
+            if (i != pos) desv_b_antes += distanceToExplicitCentroid(i, mu_a_despues);
         } else if (sol[i] == nuevo_c) {
-            dev_nue_v += distanceToExplicitCentroid(i, mu_nuevo_v);
-            dev_nue_n += distanceToExplicitCentroid(i, mu_nuevo_n);
+            desv_a_despues += distanceToExplicitCentroid(i, mu_b_antes);
+            desv_b_despues += distanceToExplicitCentroid(i, mu_b_despues);
         }
     }
+
     // Añadimos el elemento a la desviación del nuevo cluster
-    dev_nue_n += distanceToExplicitCentroid(pos, mu_nuevo_n);
+    desv_b_despues += distanceToExplicitCentroid(pos, mu_b_despues);
 
-    // Promediamos las desviaciones por el número de elementos de cada estado
-    double d_ant_v = dev_ant_v / n_antiguo;
-    double d_nue_v = dev_nue_v / n_nuevo;
-    double d_ant_n = dev_ant_n / (n_antiguo - 1);
-    double d_nue_n = dev_nue_n / (n_nuevo + 1);
-
-    // 5. Delta de la desviación general
+    double d_ant_v = desv_a_antes / valor_antes;
+    double d_nue_v = desv_a_despues / valor_nuevo;
+    double d_ant_n = desv_b_antes / (valor_antes - 1);
+    double d_nue_n = desv_b_despues / (valor_nuevo + 1);
     double delta_desviacion = (d_ant_n + d_nue_n - d_ant_v - d_nue_v) / static_cast<double>(k);
 
-    return delta_desviacion + delta_vios;
+    return delta_desviacion + dif_viol_antes_nuevas;
+
 }
 // ###################### Funciones auxiliares ##################################
 
@@ -387,13 +394,13 @@ int ParProblem::countViolations(const std::vector<int>& solution) {
     int violations = 0;
 
     for (const auto& res : constraints) {
-        // ML: Deben estar en el mismo cluster. Se viola si son distintos. [cite: 199, 833]
+        // ML: Deben estar en el mismo cluster. Se viola si son distintos.
         if (res.type == 1) {
             if (solution[res.i] != solution[res.j]) {
                 violations++;
             }
         }
-        // CL: No pueden estar en el mismo cluster. Se viola si son iguales. [cite: 200, 833]
+        // CL: No pueden estar en el mismo cluster. Se viola si son iguales.
         else if (res.type == -1) {
             if (solution[res.i] == solution[res.j]) {
                 violations++;

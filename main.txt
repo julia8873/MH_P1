@@ -13,7 +13,127 @@
 #include "localsearchnooptimization.h"
 
 using namespace std;
+
+struct DatasetInfo {
+    string nombre;
+    string file_data;
+    string file_const;
+    int k;
+    string tag; 
+};
+
+struct AlgoStats {
+    double fit_medio = 0, dist_media = 0, inc_medio = 0, tiempo_medio = 0;
+    double eval_medias = 0;
+    vector<double> historial_fitness;
+    vector<int> mejor_solucion;
+    double mejor_fitness = 1e18;
+};
+
+struct GlobalSummary {
+    double fit_total = 0, dist_total = 0, inc_total = 0, tiempo_total = 0;
+    double eval_total = 0;
+    int datasets_contados = 0;
+};
+
+
+void imprimir_mensaje(char* program_name) {
+    cout << "============================================================" << endl;
+    cout << "COMO EJECUTAR" << endl;
+    cout << "============================================================" << endl;
+    cout << "Uso 1 (Automatico): " << program_name << " [semilla]" << endl;
+    cout << "Uso 2 (Manual): " << program_name << " <semilla> <datos> <const> <k> <etiqueta>" << endl;
+    cout << "============================================================\n" << endl;
+}
+void run_experiments(const DatasetInfo& d, long int base_seed, map<string, GlobalSummary>& global_accum) {
+    cout << "[DEBUG] Cargando: " << d.nombre << " (" << d.tag << "% restricciones)... " << flush;
+    ParProblem problem(d.k);
+    problem.loadData(d.file_data, d.file_const);
+    cout << "OK." << endl;
+
+    // Se añaden los 4 algoritmos para la comparativa completa [cite: 17, 130, 144]
+    vector<pair<string, MH<int>*>> algoritmos = { 
+        {"Random", new RandomSearch<int>()}, 
+        {"Greedy", new GreedySearch()}, 
+        {"BL", new LocalSearch()},
+        {"BL_NoOpt", new LocalSearchNoOptimization()} // Variante para comparar eficiencia temporal
+    };
+
+    cout << "\nResultados para: " << d.nombre << " (" << d.tag << "% restricciones)" << endl;
+    cout << left << setw(12) << "Algoritmo" << setw(12) << "Fitness" << setw(12) << "Distancia" 
+         << setw(18) << "Incumplimiento" << setw(15) << "Evaluaciones" << "Tiempo (s)" << endl;
+    cout << string(95, '-') << endl;
+
+    for (auto& algo_pair : algoritmos) {
+        AlgoStats s;
+        string nombre = algo_pair.first;
+        vector<double> historial_tiempos; // Para el boxplot de tiempos [cite: 117]
+
+        for (int run = 0; run < 50; ++run) {
+            Random::seed(base_seed + run);
+            problem.setSeed(base_seed + run); 
+            
+            auto t_start = chrono::high_resolution_clock::now();
+            ResultMH<int> res = algo_pair.second->optimize(problem, 100000); 
+            auto t_end = chrono::high_resolution_clock::now();
+
+            chrono::duration<double> diff = t_end - t_start;
+            historial_tiempos.push_back(diff.count());
+            
+            s.fit_medio += res.fitness;
+            s.dist_media += problem.calculateDeviation(res.solution); 
+            s.inc_medio += (double)problem.countViolations(res.solution) / (double)problem.getNumRestricciones();
+            s.eval_medias += res.evaluations;
+            s.historial_fitness.push_back(res.fitness);
+
+            if (res.fitness < s.mejor_fitness) {
+                s.mejor_fitness = res.fitness;
+                s.mejor_solucion = res.solution;
+            }
+        }
+
+        s.fit_medio /= 50.0;
+        s.dist_media /= 50.0;
+        s.inc_medio /= 50.0;
+        s.eval_medias /= 50.0;
+        s.tiempo_medio = accumulate(historial_tiempos.begin(), historial_tiempos.end(), 0.0) / 50.0;
+
+        // Acumular para la tabla global final
+        global_accum[nombre].fit_total += s.fit_medio;
+        global_accum[nombre].dist_total += s.dist_media;
+        global_accum[nombre].inc_total += s.inc_medio;
+        global_accum[nombre].eval_total += s.eval_medias;
+        global_accum[nombre].tiempo_total += s.tiempo_medio;
+        global_accum[nombre].datasets_contados++;
+
+        cout << left << setw(12) << nombre 
+             << setw(12) << fixed << setprecision(4) << s.fit_medio 
+             << setw(12) << s.dist_media 
+             << setw(18) << s.inc_medio 
+             << setw(15) << (int)s.eval_medias 
+             << s.tiempo_medio << endl;
+
+        string folder = "results_" + d.nombre + "_" + d.tag;
+        mkdir(folder.c_str(), 0777);
+        
+        // Exportar fitness para boxplots
+        ofstream f_fit(folder + "/fitness_" + nombre + ".csv");
+        for(double v : s.historial_fitness) f_fit << v << "\n";
+        
+        // Exportar todos los tiempos para boxplots de tiempo
+        ofstream f_time(folder + "/times_" + nombre + ".csv");
+        for(double t : historial_tiempos) f_time << t << "\n";
+        
+        // Exportar mejor solución
+        ofstream f_sol(folder + "/best_sol_" + nombre + ".csv");
+        for(int c : s.mejor_solucion) f_sol << c << "\n";
+    }
+    for(auto& a : algoritmos) delete a.second;
+}
+
 int main(int argc, char *argv[]) {
+  imprimir_mensaje(argv[0]);
+
   long int seed;
 
   // Seed the random number generator
@@ -24,6 +144,10 @@ int main(int argc, char *argv[]) {
     // Tomamos la semilla del primer argumento del programa
     seed = atoi(argv[1]);
   }
+
+
+  vector<DatasetInfo> datasets;
+  map<string, GlobalSummary> global_results;
 
   // Create the algorithms
   RandomSearch<int> ralg = RandomSearch<int>();
