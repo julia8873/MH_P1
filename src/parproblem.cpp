@@ -89,13 +89,14 @@ void ParProblem::fix(tSolution<int>& sol) {
 
 // ###################### Funciones de esta clase ##################################
 
-void ParProblem::loadData(const string& dataPath, const string& constPath) {
+bool ParProblem::loadData(const string& dataPath, const string& constPath) {
     ifstream dataFile(dataPath);
     if (!dataFile.is_open()) {
         cerr << "ERROR: No se pudo abrir el archivo de datos en: " << dataPath << endl;
-        exit(1); 
+        return false; // Ahora devolvemos falso en lugar de cerrar el programa
     }
     
+    data.clear(); // Limpiar por si se llama varias veces
     string line, cell;
 
     // leer el .dat
@@ -109,28 +110,25 @@ void ParProblem::loadData(const string& dataPath, const string& constPath) {
     }
     size = data.size();
 
-    // MEJORA: Inicializar el vector de restricciones por instancia (lista de adyacencia)
-    // Usamos el nombre 'Constraint' para coincidir con tu struct de la cabecera
     instanceConstraints.assign(size, vector<Constraint>());
 
     // leer las restricciones
     ifstream constFile(constPath);
     if (!constFile.is_open()) {
         cerr << "ERROR: No se pudo abrir el archivo de restricciones en: " << constPath << endl;
-        exit(1); 
+        return false; 
     }
+
+    constraints.clear();
     int row = 0;
     while (getline(constFile, line)) {
         stringstream ss(line);
         int col = 0;
         while (getline(ss, cell, ',')) {
             int val = stoi(cell);
-            // Guardamos la parte triangular superior de la matriz
             if (row < col && val != 0) {
                 Constraint cons = {row, col, val};
                 constraints.push_back(cons);
-                
-                // MEJORA: Guardamos en la lista de adyacencia de ambos elementos
                 instanceConstraints[row].push_back(cons);
                 instanceConstraints[col].push_back(cons);
             }
@@ -140,8 +138,8 @@ void ParProblem::loadData(const string& dataPath, const string& constPath) {
     }
     
     calculateLambda();
+    return true; 
 }
-
 void ParProblem::setSeed(unsigned int s) {
     global_seed_counter = s;
 }

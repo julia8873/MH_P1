@@ -58,8 +58,7 @@ public:
     void fix(tSolution<int> &solution) override;
 
     // ###################### Funciones de esta clase ##################################
-    void loadData(const std::string& dataPath, const std::string& constPath);
-
+    bool loadData(const std::string& dataPath, const std::string& constPath);
     // MÉTODOS SET
     void setSeed(unsigned int s);
 
