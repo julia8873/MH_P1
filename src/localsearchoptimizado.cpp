@@ -18,7 +18,7 @@ struct pairVirtualSolution{
   int i,j;   // (1,2) -> cambiamos el 1-elemento por un 2
 };
 
-/**
+/** 
  *
  * @param problem The problem to be optimized
  * @param maxevals Maximum number of evaluations allowed

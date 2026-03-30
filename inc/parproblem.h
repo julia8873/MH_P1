@@ -83,6 +83,11 @@ public:
     
     // Búsqueda Local
     double calcular_nuevo_menos_actual(const tSolution<int>& sol, int idx, int nuevo_c, const std::vector<int>& num_elem);
+
+    // extra
+    const std::vector<std::vector<double>>& getData() const { return data; }
+    const std::vector<Constraint>& getConstraints() const { return constraints; }
+
 //private:
     // ###################### Funciones auxiliares ##################################
     void calculateLambda();

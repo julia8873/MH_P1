@@ -61,7 +61,7 @@ ResultMH<int> LocalSearch::optimize(Problem<int> &problem, int maxevals) {
     vector<int> num_elementos(k, 0);
     for (int i = 0; i < n; ++i) {
         num_elementos[sol[i] - 1]++;
-    }
+    } 
 
     while(seguir && evals < maxevals){
         seguir = false;

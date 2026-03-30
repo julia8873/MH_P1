@@ -117,7 +117,7 @@ bool ParProblem::loadData(const string& dataPath, const string& constPath) {
     if (!constFile.is_open()) {
         cerr << "ERROR: No se pudo abrir el archivo de restricciones en: " << constPath << endl;
         return false; 
-    }
+    } 
 
     constraints.clear();
     int row = 0;

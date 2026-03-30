@@ -8,12 +8,15 @@
 #include <iomanip>
 #include <numeric>
 #include <stdexcept>
+#include <sstream> 
+#include <limits> 
 
 #include "parproblem.h"
 #include "greedy.h"
 #include "randomsearch.h"
 #include "localsearch.h"
 #include "localsearchoptimizado.h"
+#include "extra.h"
 #include "random.hpp"
 
 using namespace std;
@@ -37,15 +40,27 @@ string to_lower(string data)
     return data;
 }
 
-// Devuelve los estadísticos medios para imprimirlos en la tabla
+vector<string> split(const string& s, char delimitador) {
+    vector<string> tokens;
+    string token;
+    istringstream tokenStream(s);
+    while (getline(tokenStream, token, delimitador)) {
+        tokens.push_back(token);
+    }
+    return tokens;
+}
+
 Stats run_experiments(const DatasetInfo &d, MH<int> *algo, string nombre_algo, long int base_seed, int num_runs)
 {
     ParProblem problem(d.k);
     if (!problem.loadData(d.file_data, d.file_const))
         return Stats();
 
-    vector<double> historial_fitness, historial_tiempos;
+    vector<double> historial_fitness, historial_tiempos, historial_dist, historial_inc, historial_eval;
     Stats s;
+
+    double best_fitness = numeric_limits<double>::infinity();
+    vector<int> best_solution;
 
     for (int run = 0; run < num_runs; ++run)
     {
@@ -57,33 +72,59 @@ Stats run_experiments(const DatasetInfo &d, MH<int> *algo, string nombre_algo, l
         auto t_end = chrono::high_resolution_clock::now();
 
         double tiempo = chrono::duration<double>(t_end - t_start).count();
+        double dist = problem.calculateDeviation(res.solution);
+        double inc = (double)problem.countViolations(res.solution) / (double)problem.getNumRestricciones();
+
         historial_tiempos.push_back(tiempo);
         historial_fitness.push_back(res.fitness);
+        historial_dist.push_back(dist);
+        historial_inc.push_back(inc);
+        historial_eval.push_back(res.evaluations);
 
-        // Medias
+        if (res.fitness < best_fitness) {
+            best_fitness = res.fitness;
+            best_solution = res.solution;
+        }
+
         s.fit_medio += res.fitness;
-        s.dist_media += problem.calculateDeviation(res.solution);
-        s.inc_medio += (double)problem.countViolations(res.solution) / (double)problem.getNumRestricciones();
+        s.dist_media += dist;
+        s.inc_medio += inc;
         s.eval_medias += res.evaluations;
         s.tiempo_medio += tiempo;
     }
 
-    // para fitness
+    // Archivos originales
     ofstream f_box("../resultados/resultados_" + d.nombre + "_" + d.tag + ".csv", ios::app);
-    for (double v : historial_fitness)
-        f_box << nombre_algo << "," << v << "\n";
-
-    // para tiempos
+    for (double v : historial_fitness) f_box << nombre_algo << "," << v << "\n";
+    
     ofstream f_time("../resultados/tiempos_" + d.nombre + "_" + d.tag + ".csv", ios::app);
-    for (double t : historial_tiempos)
-        f_time << nombre_algo << "," << t << "\n";
+    for (double t : historial_tiempos) f_time << nombre_algo << "," << t << "\n";
 
-    // medias
+    // Archivos extra (todos .csv)
+    ofstream f_exec("../resultados/ejecuciones_" + d.nombre + "_" + d.tag + ".csv", ios::app);
+    for (int i = 0; i < num_runs; i++) {
+        f_exec << nombre_algo << "," << historial_fitness[i] << "," << historial_dist[i] << "," 
+               << historial_inc[i] << "," << historial_eval[i] << "," << historial_tiempos[i] << "\n";
+    }
+    f_exec.close();
+
     s.fit_medio /= num_runs;
     s.dist_media /= num_runs;
     s.inc_medio /= num_runs;
     s.eval_medias /= num_runs;
     s.tiempo_medio /= num_runs;
+
+    ofstream f_resumen("../resultados/resumen_metricas.csv", ios::app);
+    f_resumen << nombre_algo << "," << d.nombre << "_" << d.tag << ","
+              << s.fit_medio << "," << s.dist_media << "," 
+              << s.inc_medio << "," << s.tiempo_medio << "\n";
+    f_resumen.close();
+
+    string sol_path = "../resultados/solucion_" + d.nombre + "_" + d.tag + "_" + nombre_algo + ".csv";
+    ofstream f_sol(sol_path);
+    f_sol << "Cluster\n";
+    for (int cluster_id : best_solution) f_sol << cluster_id << "\n";
+    f_sol.close();
 
     return s;
 }
@@ -111,7 +152,7 @@ void imprimir_tabla(const DatasetInfo &d, const map<string, Stats> &resultados_a
          << " | -" << string(w_ev - 2, '-') << "-"
          << " | -" << string(w_time - 2, '-') << "- |\n";
 
-    vector<string> orden = {"Greedy", "Random", "BL", "BL_Optimizado"};
+    vector<string> orden = {"Greedy", "Random", "BL", "BL_Optimizado", "Extra"};
 
     for (const string &nombre_algo : orden)
     {
@@ -131,130 +172,163 @@ void imprimir_tabla(const DatasetInfo &d, const map<string, Stats> &resultados_a
 
 int main(int argc, char *argv[])
 {
+    auto print_help = []() {
+        cout << "\n======================================================================\n";
+        cout << "USO ESTANDAR: ./main <algoritmo> [fichero] [semilla] [ejecuciones]\n";
+        cout << "----------------------------------------------------------------------\n";
+        cout << "  Opciones <algoritmo> : greedy | bl | bl_optimizado | random | extra | all\n";
+        cout << "                         (Puedes combinarlos con comas: greedy,bl,extra)\n";
+        cout << "  Opciones [fichero]   : zoo | glass | bupa | all\n";
+        cout << "  Ejemplo              : ./main bl,greedy zoo 88 10\n";
+        cout << "\nUSO EXPLICITO: ./main <algoritmo> custom <fichero_datos> <fichero_const> <k> <etiqueta> [semilla] [ejec.]\n";
+        cout << "----------------------------------------------------------------------\n";
+        cout << "  Ejemplo              : ./main bl custom ../data/datos.dat ../data/const.dat 5 test1 88 10\n";
+        cout << "======================================================================\n\n";
+    };
+
     if (argc < 2)
     {
-        cout << "\n======================================================================" << endl;
-        cout << "USO ESTANDAR: " << argv[0] << " <algoritmo> [fichero] [semilla] [ejecuciones]" << endl;
-        cout << "----------------------------------------------------------------------" << endl;
-        cout << "  Opciones <algoritmo> : greedy | bl | bl_optimizado | random | all" << endl;
-        cout << "  Opciones [fichero]   : zoo | glass | bupa | all" << endl;
-        cout << "  Ejemplo              : " << argv[0] << " all zoo 88 10\n" << endl;
-        
-        cout << "USO EXPLICITO: " << argv[0] << " <algoritmo> custom <fichero_datos> <fichero_const> <k> <etiqueta> [semilla] [ejec.]" << endl;
-        cout << "----------------------------------------------------------------------" << endl;
-        cout << "  Ejemplo              : " << argv[0] << " bl custom ../data/datos.dat ../data/const.dat 5 test1 88 10" << endl;
-        cout << "======================================================================\n" << endl;
+        cout << "\n[ERROR] No se han proporcionado argumentos.\n";
+        print_help();
         return 1;
     }
 
-    string target_algo = to_lower(argv[1]);
+    string arg_algoritmos = to_lower(argv[1]);
+
+    // Si piden ayuda explícitamente
+    if (arg_algoritmos == "help" || arg_algoritmos == "-h" || arg_algoritmos == "--help") {
+        print_help();
+        return 0;
+    }
+
+    vector<string> target_algos = split(arg_algoritmos, ',');
+
+    // Validar que los algoritmos indicados sean válidos
+    vector<string> algos_validos = {"greedy", "bl", "bl_optimizado", "random", "extra", "all"};
+    for (const string &t : target_algos) {
+        if (find(algos_validos.begin(), algos_validos.end(), t) == algos_validos.end()) {
+            cout << "\n[ERROR] Algoritmo desconocido: '" << t << "'.\n";
+            cout << "        Algoritmos disponibles: greedy | bl | bl_optimizado | random | extra | all\n";
+            print_help();
+            return 1;
+        }
+    }
+
     string target_data = (argc >= 3) ? to_lower(argv[2]) : "all";
-    
+
+    // Validar fichero (solo en modo estándar)
+    if (target_data != "custom") {
+        vector<string> datasets_validos = {"zoo", "glass", "bupa", "all"};
+        if (find(datasets_validos.begin(), datasets_validos.end(), target_data) == datasets_validos.end()) {
+            cout << "\n[ERROR] Dataset desconocido: '" << target_data << "'.\n";
+            cout << "        Datasets disponibles: zoo | glass | bupa | all\n";
+            print_help();
+            return 1;
+        }
+    }
+
     vector<DatasetInfo> datasets_a_ejecutar;
     long int base_seed = 88;
     int num_runs = 10;
 
     try {
-        // MODO EXPLÍCITO (CUSTOM)
         if (target_data == "custom") {
             if (argc < 7) {
-                cout << "\n[ERROR] Faltan argumentos para el modo custom." << endl;
-                cout << "Formato: custom <datos.dat> <restricciones.dat> <k> <etiqueta> [semilla] [ejecuciones]" << endl;
+                cout << "\n[ERROR] Modo 'custom' requiere al menos 6 argumentos.\n";
+                cout << "        Faltan: ";
+                if (argc < 4) cout << "<fichero_datos> ";
+                if (argc < 5) cout << "<fichero_const> ";
+                if (argc < 6) cout << "<k> ";
+                if (argc < 7) cout << "<etiqueta>";
+                cout << "\n";
+                print_help();
                 return 1;
             }
-            string custom_data = argv[3];
-            string custom_const = argv[4];
-            int k = stoi(argv[5]);
-            string tag = argv[6]; // Para nombrar el .csv de salida
+            datasets_a_ejecutar.push_back({"custom", argv[3], argv[4], stoi(argv[5]), argv[6]});
             base_seed = (argc >= 8) ? stol(argv[7]) : 88;
-            num_runs = (argc >= 9) ? stoi(argv[8]) : 10;
-
-            datasets_a_ejecutar.push_back({"custom", custom_data, custom_const, k, tag});
-        } 
-        // MODO ESTÁNDAR (PREDEFINIDOS)
-        else {
+            num_runs  = (argc >= 9) ? stoi(argv[8]) : 10;
+        } else {
             base_seed = (argc >= 4) ? stol(argv[3]) : 88;
             num_runs  = (argc >= 5) ? stoi(argv[4]) : 10;
 
-            vector<DatasetInfo> predefinidos = {
-                {"zoo", "../data/zoo_set.dat", "../data/zoo_set_const_15.dat", 7, "15"},
-                {"zoo", "../data/zoo_set.dat", "../data/zoo_set_const_30.dat", 7, "30"},
-                {"glass", "../data/glass_set.dat", "../data/glass_set_const_15.dat", 7, "15"},
-                {"glass", "../data/glass_set.dat", "../data/glass_set_const_30.dat", 7, "30"},
-                {"bupa", "../data/bupa_set.dat", "../data/bupa_set_const_15.dat", 16, "15"},
-                {"bupa", "../data/bupa_set.dat", "../data/bupa_set_const_30.dat", 16, "30"}
-            };
+            if (num_runs <= 0) {
+                cout << "\n[ERROR] El número de ejecuciones debe ser un entero positivo (recibido: " << num_runs << ").\n";
+                return 1;
+            }
 
+            vector<DatasetInfo> predefinidos = {
+                {"zoo",   "../data/zoo_set.dat",  "../data/zoo_set_const_15.dat",  7,  "15"},
+                {"zoo",   "../data/zoo_set.dat",  "../data/zoo_set_const_30.dat",  7,  "30"},
+                {"glass", "../data/glass_set.dat","../data/glass_set_const_15.dat",7,  "15"},
+                {"glass", "../data/glass_set.dat","../data/glass_set_const_30.dat",7,  "30"},
+                {"bupa",  "../data/bupa_set.dat", "../data/bupa_set_const_15.dat", 16, "15"},
+                {"bupa",  "../data/bupa_set.dat", "../data/bupa_set_const_30.dat", 16, "30"}
+            };
             for (const auto &d : predefinidos) {
-                if (target_data == "all" || to_lower(d.nombre).find(target_data) != string::npos) {
+                if (target_data == "all" || to_lower(d.nombre).find(target_data) != string::npos)
                     datasets_a_ejecutar.push_back(d);
-                }
             }
         }
-    } 
-    catch (const std::invalid_argument& e) {
-        cout << "\n[ERROR] Parámetro numérico inválido." << endl;
-        cout << "Has introducido texto donde se esperaba un número (ej. semilla, número de ejecuciones o 'k')." << endl;
-        
-        if (target_data != "custom" && argc >= 4) {
-            cout << "-> PISTA: Parece que intentabas usar ficheros explícitos pero olvidaste poner la palabra 'custom' después del algoritmo." << endl;
-            cout << "-> Ejemplo correcto: " << argv[0] << " bl custom ../data/zoo_set.dat ..." << endl;
-        }
-        cout << "\nLanza " << argv[0] << " sin argumentos para ver la ayuda.\n" << endl;
+    } catch (const invalid_argument &e) {
+        cout << "\n[ERROR] Argumento no numérico donde se esperaba un número (semilla o ejecuciones).\n";
+        print_help();
         return 1;
-    }
-    catch (const std::out_of_range& e) {
-        cout << "\n[ERROR] El número introducido es demasiado grande o pequeño.\n" << endl;
+    } catch (const out_of_range &e) {
+        cout << "\n[ERROR] Valor numérico fuera de rango en semilla o ejecuciones.\n";
+        print_help();
+        return 1;
+    } catch (...) {
+        cout << "\n[ERROR] Error inesperado al procesar los argumentos.\n";
+        print_help();
         return 1;
     }
 
     if (datasets_a_ejecutar.empty()) {
-        cout << "\n[Aviso] No se ha encontrado ningún dataset que coincida con: " << target_data << endl;
+        cout << "\n[ERROR] No se encontraron datasets que coincidan con '" << target_data << "'.\n";
+        print_help();
         return 0;
     }
 
-    cout << "Iniciando experimentos con semilla base: " << base_seed << " y " << num_runs << " ejecuciones por test." << endl;
+    cout << "Iniciando experimentos con semilla base: " << base_seed
+         << " y " << num_runs << " ejecuciones por test.\n";
+    ofstream f_resumen_init("../resultados/resumen_metricas.csv");
+    f_resumen_init << "Algoritmo,Dataset,Fitness,Distancia,Incumplimientos,Tiempo\n";
+    f_resumen_init.close();
 
     for (const auto &d : datasets_a_ejecutar)
     {
-        string res_path = "../resultados/resultados_" + d.nombre + "_" + d.tag + ".csv";
-        string tim_path = "../resultados/tiempos_" + d.nombre + "_" + d.tag + ".csv";
-        
-        ofstream f_init(res_path);
-        f_init << "alg,fitness\n";
-        f_init.close();
+        ofstream f_init("../resultados/resultados_" + d.nombre + "_" + d.tag + ".csv");
+        f_init << "alg,fitness\n"; f_init.close();
 
-        ofstream t_init(tim_path);
-        t_init << "alg,fitness\n"; // <--- VUELTO A DEJAR COMO ESTABA PARA BOXPLOTS.PY
-        t_init.close();
+        ofstream t_init("../resultados/tiempos_" + d.nombre + "_" + d.tag + ".csv");
+        t_init << "alg,fitness\n"; t_init.close();
+
+        ofstream e_init("../resultados/ejecuciones_" + d.nombre + "_" + d.tag + ".csv");
+        e_init << "Algoritmo,Fitness,Distancia,Incumplimientos,Evaluaciones,Tiempo\n";
+        e_init.close();
 
         map<string, MH<int> *> algos;
         algos["Random"] = new RandomSearch<int>();
         algos["Greedy"] = new GreedySearch();
         algos["BL"]     = new LocalSearch();
         algos["BL_Optimizado"] = new LocalSearchOptimizado();
+        algos["Extra"]  = new Extra(); 
 
         map<string, Stats> resultados_dataset;
 
-        for (auto const &[name, ptr] : algos)
-        {
-            if (target_algo == "all" || target_algo == to_lower(name))
-            {
-                //cout << endl<< "[PROCESANDO] Ficheros: " << d.nombre << " (" << d.tag << ") | Algoritmo: " << name << "..." << endl;
+        for (auto const &[name, ptr] : algos) {
+            bool ejecutar_este = false;
+            for (const string& t_algo : target_algos) {
+                if (t_algo == "all" || t_algo == to_lower(name)) { ejecutar_este = true; break; }
+            }
+            if (ejecutar_este) {
                 resultados_dataset[name] = run_experiments(d, ptr, name, base_seed, num_runs);
             }
         }
 
-        if (!resultados_dataset.empty()) {
-            imprimir_tabla(d, resultados_dataset);
-        }
-
-        for (auto const &[name, ptr] : algos) {
-            delete ptr;
-        }
+        if (!resultados_dataset.empty()) imprimir_tabla(d, resultados_dataset);
+        for (auto const &[name, ptr] : algos) delete ptr;
     }
-
-    cout << "\nProceso finalizado. Los resultados se han guardado en '../resultados/'" << endl;
-
+    cout << "\nProceso finalizado. Todo se ha guardado en formato .csv en '../resultados/'" << endl;
     return 0;
 }
