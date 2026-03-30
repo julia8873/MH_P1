@@ -14,11 +14,11 @@ using MHInt = MH<int>;
 using ProblemInt = Problem<int>;
 using ResultMHInt = ResultMH<int>;
 
-class LocalSearchNoOptimization : public MHInt {
+class LocalSearchOptimizado : public MHInt {
 
 public:
-  LocalSearchNoOptimization() : MH() {}
-  virtual ~LocalSearchNoOptimization() {}
+  LocalSearchOptimizado() : MH() {}
+  virtual ~LocalSearchOptimizado() {}
   // Implement the MH interface methods
   /**
    *

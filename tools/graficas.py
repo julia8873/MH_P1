@@ -10,7 +10,7 @@ from sklearn.decomposition import PCA
 sns.set_theme(style="whitegrid")
 
 # Parámetros globales
-algoritmos = ["Random", "Greedy", "BL", "BL_NoOpt"]
+algoritmos = ["Random", "Greedy", "BL", "BL_Optimizado"]
 colores_boxplot = ["#3478a8", "#e38633", "#32a852", "#a83232"] 
 
 # Ajusta el valor de K para tus datasets aquí

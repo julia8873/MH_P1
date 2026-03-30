@@ -2,126 +2,136 @@
 #include <vector>
 #include <string>
 #include <chrono>
-#include <iomanip>
 #include <fstream>
-#include <numeric>
 #include <map>
-#include <sys/stat.h>
 #include <algorithm>
+#include <iomanip>
+#include <numeric>
 
-// Headers del proyecto
 #include "parproblem.h"
 #include "greedy.h"
 #include "randomsearch.h"
 #include "localsearch.h"
-#include "localsearchnooptimization.h"
+#include "localsearchoptimizado.h"
 #include "random.hpp"
 
 using namespace std;
 
-// --- Estructuras de Datos ---
-struct DatasetInfo {
-    string nombre;
-    string file_data;
-    string file_const;
+struct DatasetInfo
+{
+    string nombre, file_data, file_const;
     int k;
-    string tag; 
+    string tag;
 };
 
-struct AlgoStats {
+struct Stats
+{
     double fit_medio = 0, dist_media = 0, inc_medio = 0, tiempo_medio = 0;
     double eval_medias = 0;
-    vector<double> historial_fitness;
-    vector<int> mejor_solucion;
-    double mejor_fitness = 1e18;
 };
 
-struct GlobalSummary {
-    double fit_total = 0, dist_total = 0, inc_total = 0, tiempo_total = 0;
-    double eval_total = 0;
-    int datasets_contados = 0;
-};
-
-// --- Funciones Auxiliares ---
-string to_lower(string data) {
+string to_lower(string data)
+{
     transform(data.begin(), data.end(), data.begin(), ::tolower);
     return data;
 }
 
-void imprimir_cabecera() {
-    cout << left << setw(12) << "Algoritmo" 
-         << setw(14) << "Fitness" 
-         << setw(14) << "Distancia" 
-         << setw(18) << "Incumplimiento" 
-         << setw(15) << "Evaluaciones" 
-         << "Tiempo (s)" << endl;
-    cout << string(90, '-') << endl;
-}
-
-void run_experiments(const DatasetInfo& d, MH<int>* algo, string nombre_algo, long int base_seed, int num_runs, map<string, GlobalSummary>& global_accum) {
+// Devuelve los estadísticos medios para imprimirlos en la tabla
+Stats run_experiments(const DatasetInfo &d, MH<int> *algo, string nombre_algo, long int base_seed, int num_runs)
+{
     ParProblem problem(d.k);
-    if (!problem.loadData(d.file_data, d.file_const)) return;
+    if (!problem.loadData(d.file_data, d.file_const))
+        return Stats();
 
-    AlgoStats s;
-    vector<double> historial_tiempos;
+    vector<double> historial_fitness, historial_tiempos;
+    Stats s;
 
-    for (int run = 0; run < num_runs; ++run) {
+    for (int run = 0; run < num_runs; ++run)
+    {
         Random::seed(base_seed + run);
-        problem.setSeed(base_seed + run); 
-        
+        problem.setSeed(base_seed + run);
+
         auto t_start = chrono::high_resolution_clock::now();
-        ResultMH<int> res = algo->optimize(problem, 100000); 
+        ResultMH<int> res = algo->optimize(problem, 100000);
         auto t_end = chrono::high_resolution_clock::now();
 
-        chrono::duration<double> diff = t_end - t_start;
-        historial_tiempos.push_back(diff.count());
-        
+        double tiempo = chrono::duration<double>(t_end - t_start).count();
+        historial_tiempos.push_back(tiempo);
+        historial_fitness.push_back(res.fitness);
+
+        // Medias
         s.fit_medio += res.fitness;
-        s.dist_media += problem.calculateDeviation(res.solution); 
+        s.dist_media += problem.calculateDeviation(res.solution);
         s.inc_medio += (double)problem.countViolations(res.solution) / (double)problem.getNumRestricciones();
         s.eval_medias += res.evaluations;
-        s.historial_fitness.push_back(res.fitness);
-
-        if (res.fitness < s.mejor_fitness) {
-            s.mejor_fitness = res.fitness;
-            s.mejor_solucion = res.solution;
-        }
+        s.tiempo_medio += tiempo;
     }
 
-    // Cálculos de medias
-    s.fit_medio /= (double)num_runs;
-    s.dist_media /= (double)num_runs;
-    s.inc_medio /= (double)num_runs;
-    s.eval_medias /= (double)num_runs;
-    s.tiempo_medio = accumulate(historial_tiempos.begin(), historial_tiempos.end(), 0.0) / (double)num_runs;
+    // para fitness
+    ofstream f_box("resultados_" + d.nombre + "_" + d.tag + ".csv", ios::app);
+    for (double v : historial_fitness)
+        f_box << nombre_algo << "," << v << "\n";
 
-    // Acumular para el resumen global
-    global_accum[nombre_algo].fit_total += s.fit_medio;
-    global_accum[nombre_algo].dist_total += s.dist_media;
-    global_accum[nombre_algo].inc_total += s.inc_medio;
-    global_accum[nombre_algo].eval_total += s.eval_medias;
-    global_accum[nombre_algo].tiempo_total += s.tiempo_medio;
-    global_accum[nombre_algo].datasets_contados++;
+    // para tiempos
+    ofstream f_time("tiempos_" + d.nombre + "_" + d.tag + ".csv", ios::app);
+    for (double t : historial_tiempos)
+        f_time << nombre_algo << "," << t << "\n";
 
-    // --- IMPRESIÓN DE FILA EN TIEMPO REAL ---
-    cout << left << setw(12) << nombre_algo 
-         << setw(14) << fixed << setprecision(4) << s.fit_medio 
-         << setw(14) << s.dist_media 
-         << setw(18) << s.inc_medio 
-         << setw(15) << (int)s.eval_medias 
-         << fixed << setprecision(4) << s.tiempo_medio << endl;
+    // medias
+    s.fit_medio /= num_runs;
+    s.dist_media /= num_runs;
+    s.inc_medio /= num_runs;
+    s.eval_medias /= num_runs;
+    s.tiempo_medio /= num_runs;
 
-    // Exportar resultados
-    string folder = "results_" + d.nombre + "_" + d.tag;
-    mkdir(folder.c_str(), 0777);
-    ofstream f_fit(folder + "/fitness_" + nombre_algo + ".csv");
-    for(double v : s.historial_fitness) f_fit << v << "\n";
+    return s;
 }
 
-int main(int argc, char *argv[]) {
-    if (argc < 2) {
-        cout << "\nUso: " << argv[0] << " <algoritmo|all> [semilla] [ejecuciones]" << endl;
-        cout << "Ejemplo: " << argv[0] << " all 88 50\n" << endl;
+void imprimir_tabla(const DatasetInfo &d, const map<string, Stats> &resultados_algos)
+{
+    string nombre_dataset = d.nombre;
+    nombre_dataset[0] = toupper(nombre_dataset[0]);
+
+    cout << "\n------------------------------------ Resultados:" << nombre_dataset
+         << " (" << d.tag << "% Restricciones) ---------------------------------\n\n";
+
+    int w_alg = 17, w_fit = 13, w_dist = 15, w_inc = 14, w_ev = 10, w_time = 16;
+
+    cout << "| " << left << setw(w_alg) << "Algoritmo"
+         << " | " << left << setw(w_fit) << "Fitness"
+         << " | " << left << setw(w_dist) << "Distancia"
+         << " | " << left << setw(w_inc) << "Incumpl."
+         << " | " << left << setw(w_ev) << "Evals."
+         << " | " << left << setw(w_time) << "Tiempo (s)" << " |\n";
+    cout << "| -" << string(w_alg - 1, '-')
+         << " | -" << string(w_fit - 2, '-') << "-"
+         << " | -" << string(w_dist - 2, '-') << "-"
+         << " | -" << string(w_inc - 2, '-') << "-"
+         << " | -" << string(w_ev - 2, '-') << "-"
+         << " | -" << string(w_time - 2, '-') << "- |\n";
+
+    vector<string> orden = {"Greedy", "Random", "BL", "BL_Optimizado"};
+
+    for (const string &nombre_algo : orden)
+    {
+        if (resultados_algos.count(nombre_algo))
+        {
+            const Stats &s = resultados_algos.at(nombre_algo);
+            string str_algo = nombre_algo;
+            cout << "| " << left << setw(w_alg) << str_algo
+                 << " | " << left << setw(w_fit) << fixed << setprecision(6) << s.fit_medio
+                 << " | " << left << setw(w_dist) << fixed << setprecision(6) << s.dist_media
+                 << " | " << left << setw(w_inc) << fixed << setprecision(6) << s.inc_medio
+                 << " | " << left << setw(w_ev) << (int)s.eval_medias
+                 << " | " << left << setw(w_time) << fixed << setprecision(6) << s.tiempo_medio << " |\n";
+        }
+    }
+}
+int main(int argc, char *argv[])
+{
+    if (argc < 2)
+    {
+        cout << "Uso: " << argv[0] << " <algoritmo|all> [semilla] [ejecuciones]" << endl;
         return 1;
     }
 
@@ -135,44 +145,36 @@ int main(int argc, char *argv[]) {
         {"glass", "../data/glass_set.dat", "../data/glass_set_const_15.dat", 7, "15"},
         {"glass", "../data/glass_set.dat", "../data/glass_set_const_30.dat", 7, "30"},
         {"bupa", "../data/bupa_set.dat", "../data/bupa_set_const_15.dat", 16, "15"},
-        {"bupa", "../data/bupa_set.dat", "../data/bupa_set_const_30.dat", 16, "30"}
-    };
+        {"bupa", "../data/bupa_set.dat", "../data/bupa_set_const_30.dat", 16, "30"}};
 
-    map<string, GlobalSummary> global_results;
+    for (const auto &d : datasets)
+    {
+        ofstream f_init("resultados_" + d.nombre + "_" + d.tag + ".csv");
+        f_init << "alg,fitness\n";
+        f_init.close();
 
-    for (const auto& d : datasets) {
-        cout << "\n>>> DATASET: " << d.nombre << " (" << d.tag << "% restricciones)" << endl;
-        imprimir_cabecera();
+        ofstream t_init("tiempos_" + d.nombre + "_" + d.tag + ".csv");
+        t_init << "alg,fitness\n";
+        t_init.close();
 
-        map<string, MH<int>*> algos;
-        algos["Random"] = new RandomSearch<int>();
-        algos["Greedy"] = new GreedySearch();
-        algos["BL"] = new LocalSearch();
-        algos["BL_NoOpt"] = new LocalSearchNoOptimization();
+        map<string, MH<int> *> algos = {
+            {"Random", new RandomSearch<int>()},
+            {"Greedy", new GreedySearch()},
+            {"BL", new LocalSearch()},
+            {"BL_Optimizado", new LocalSearchOptimizado()}};
 
-        for (auto const& [name, ptr] : algos) {
-            if (target == "all" || target == to_lower(name)) {
-                run_experiments(d, ptr, name, base_seed, num_runs, global_results);
+        map<string, Stats> resultados_dataset;
+
+        for (auto const &[name, ptr] : algos)
+        {
+            if (target == "all" || target == to_lower(name))
+            {
+                resultados_dataset[name] = run_experiments(d, ptr, name, base_seed, num_runs);
             }
+            delete ptr;
         }
 
-        for (auto& pair : algos) delete pair.second;
-        cout << string(90, '=') << endl;
-    }
-
-    // --- TABLA RESUMEN FINAL ---
-    if (!global_results.empty()) {
-        cout << "\n\n" << string(30, ' ') << "RESUMEN GLOBAL (MEDIAS)" << endl;
-        imprimir_cabecera();
-        for (auto const& [nombre, summary] : global_results) {
-            double n = summary.datasets_contados;
-            cout << left << setw(12) << nombre 
-                 << setw(14) << fixed << setprecision(4) << (summary.fit_total / n)
-                 << setw(14) << (summary.dist_total / n) 
-                 << setw(18) << (summary.inc_total / n) 
-                 << setw(15) << (int)(summary.eval_total / n) 
-                 << (summary.tiempo_total / n) << endl;
-        }
+        imprimir_tabla(d, resultados_dataset);
     }
 
     return 0;

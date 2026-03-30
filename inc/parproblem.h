@@ -41,7 +41,7 @@ private:
     int k;                                   // Número de clusters
     double lambda;                           
     std::vector<std::vector<double>> data;
-    std::vector<Constraint> constraints;     // Lista de restricciones para eficiencia [cite: 58, 346]
+    std::vector<Constraint> constraints;
     std::vector<std::vector<Constraint>> instanceConstraints;
 public:
 
