@@ -29,6 +29,10 @@
   vector de solución:
   S = [1,2,3,1,2,3]
 
+  Para cada instancia, están sus restricciones:
+    Instancia 0 tiene restric con 1 y con 2:
+    instanceConstraints[0]: [{0, 1, 1}, {0, 2, -1}]
+
 */
 
 struct Constraint {

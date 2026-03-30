@@ -77,7 +77,7 @@ ResultMH<int> GreedySearch::optimize(Problem<int> &problem, int maxevals) {
             }
         }
 
-        // 4. Actualizar centroides con el promedio de sus instancias
+        // actualizar centroides con el promedio de sus instancias
         if (seguir) {
             p.updateCentroids(centroids, sol);
         }
