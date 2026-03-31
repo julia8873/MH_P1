@@ -47,9 +47,15 @@ private:
     std::vector<std::vector<double>> data;
     std::vector<Constraint> constraints;
     std::vector<std::vector<Constraint>> instanceConstraints;
+    // Para las gráficas
+    //std::vector<double> fitness_history;
+    //std::vector<int>    eval_history;
 public:
 
-    // ###################### Funciones heredadas ##################################
+
+// --------------------------------------------------------------------------------------------------------
+//                          FUNCIONES HEREDADAS DE PROBLEM
+// --------------------------------------------------------------------------------------------------------
     ParProblem(int k_clusters) : Problem<int>(), k(k_clusters), size(0), lambda(0) {}
     virtual size_t getSolutionSize() override { return size; }
     virtual std::pair<int, int> getSolutionDomainRange() override {
@@ -61,7 +67,11 @@ public:
     bool isValid(const tSolution<int> &solution) override;
     void fix(tSolution<int> &solution) override;
 
-    // ###################### Funciones de esta clase ##################################
+    
+// --------------------------------------------------------------------------------------------------------
+//                              FUNCIONES DE ESTA CLASE
+// --------------------------------------------------------------------------------------------------------
+
     bool loadData(const std::string& dataPath, const std::string& constPath);
     // MÉTODOS SET
     void setSeed(unsigned int s);
@@ -88,8 +98,24 @@ public:
     const std::vector<std::vector<double>>& getData() const { return data; }
     const std::vector<Constraint>& getConstraints() const { return constraints; }
 
+    // convergencia
+    // Para las gráficas
+    //const std::vector<double>& getFitnessHistory() const { return fitness_history; }
+    //const std::vector<int>&    getEvalHistory()    const { return eval_history; }
+    //void clearFitnessHistory() {
+    //    fitness_history.clear();
+    //    eval_history.clear();
+    //}
+    //void recordFitness(int eval, double fit) {
+    //    eval_history.push_back(eval);
+    //    fitness_history.push_back(fit);
+    //}
+
 //private:
-    // ###################### Funciones auxiliares ##################################
+
+// --------------------------------------------------------------------------------------------------------
+//                              FUNCIONES AUXILIARES
+// --------------------------------------------------------------------------------------------------------
     void calculateLambda();
     double calculateDeviation(const tSolution<int>& sol);
     std::vector<double> calculateCentroid(const std::vector<int>& indices);

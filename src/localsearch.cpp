@@ -2,100 +2,111 @@
 #include <localsearch.h>
 #include <iostream>
 #include <parproblem.h>
-
 using namespace std;
 
-template <class T> void print_vector(string name, const vector<T> &sol) {
-  cout << name << ": ";
-
-  for (auto elem : sol) {
-    cout << elem << ", ";
-  }
-  cout << endl;
-}
-
-struct pairVirtualSolution{
-  int i,j;   // (1,2) -> cambiamos el 1-elemento por un 2
+// estructura para representar un vecino:
+// mover el elemento i al cluster j
+struct pairVirtualSolution
+{
+    int i, j;
 };
 
-/**
- *
- * @param problem The problem to be optimized
- * @param maxevals Maximum number of evaluations allowed
- * @return A pair containing the best solution found and its fitness
- */
-ResultMH<int> LocalSearch::optimize(Problem<int> &problem, int maxevals) {
+ResultMH<int> LocalSearch::optimize(Problem<int> &problem, int maxevals)
+{
     ParProblem &p = dynamic_cast<ParProblem &>(problem);
-    int n = p.getSolutionSize();
-    int k = p.getK();
-    
-    tSolution<int> sol(n, 0);
-    vector<int> indices_totales(n);
-    for (int i = 0; i < n; ++i) indices_totales[i] = i;
 
+    int n = p.getSolutionSize(); // número de elementos
+    int k = p.getK();            // número de clusters
+
+    tSolution<int> sol(n, 0);
+
+    // generar índices y barajarlos
+    vector<int> indices_totales(n);
+    for (int i = 0; i < n; ++i)
+        indices_totales[i] = i;
     Random::shuffle(indices_totales);
 
-    // Inicialización: aseguramos que cada clúster tenga al menos un elemento [cite: 358, 693]
-    for (int c = 0; c < k; ++c) {
+    // asignar los k primeros elementos a clusters distintos
+    for (int c = 0; c < k; ++c)
         sol[indices_totales[c]] = c + 1;
-    }
-    for (int i = k; i < n; ++i) {
-        sol[indices_totales[i]] = Random::get(1, k);
-    }
 
-    int evals = 0;
+    // el resto de elementos se asignan aleatoriamente
+    for (int i = k; i < n; ++i)
+        sol[indices_totales[i]] = Random::get(1, k);
+
+    int evals = 1;
+
+    // calcular fitness inicial
     tFitness fitness_mejor_sol = p.fitness(sol);
-    evals++; // Primera evaluación [cite: 883]
+
+    // Para las gráficas
+    // p.recordFitness(evals, fitness_mejor_sol);
 
     bool seguir = true;
 
-    // Generar vecindario virtual [cite: 734, 748]
+    // generar todos los vecinos posibles:
     vector<pairVirtualSolution> vecinos;
-    for(int i = 0; i < n; ++i) {
-        for(int j = 1; j <= k; ++j) {
+    for (int i = 0; i < n; ++i)
+        for (int j = 1; j <= k; ++j)
             vecinos.push_back({i, j});
-        }
-    }
 
-    // Contador de elementos por clúster (clústeres 1 a k mapeados a 0 a k-1)
+    // contar cuántos elementos hay en cada cluster
     vector<int> num_elementos(k, 0);
-    for (int i = 0; i < n; ++i) {
+    for (int i = 0; i < n; ++i)
         num_elementos[sol[i] - 1]++;
-    } 
 
-    while(seguir && evals < maxevals){
+    // Generamos vecinos (intercambiamos dos elem)
+    // Si el fitness es mejor, esa es nuestra nueva sol
+    // Repetir hasta que no haya mejoras o max de eval
+    while (seguir && evals < maxevals)
+    {
+
         seguir = false;
-        Random::shuffle(vecinos); // Orden aleatorio para diversidad [cite: 689, 739]
+        Random::shuffle(vecinos);
 
-        for(auto [pos, valor] : vecinos){
-            if(evals >= maxevals) break;
-            
-            if (sol[pos] == valor) continue;
+        for (auto [pos, valor] : vecinos)
+        {
+            if (evals >= maxevals)
+                break;
 
-            int valor_antiguo = sol[pos]; 
+            // si el elemento ya está en ese cluster, no tiene sentido
+            if (sol[pos] == valor)
+                continue;
 
-            // RESTRICCIÓN FUERTE: No dejar un clúster vacío [cite: 358, 699, 919]
-            if(num_elementos[valor_antiguo - 1] <= 1) continue;
+            int valor_antiguo = sol[pos];
 
-            // Movimiento temporal para evaluar
+            // evitar dejar un cluster vacío
+            if (num_elementos[valor_antiguo - 1] <= 1)
+                continue;
+
+            // probar el movimiento (cambio temporal)
             int prev_val = sol[pos];
             sol[pos] = valor;
-            
-            tFitness fitness_actual = p.fitness(sol);
-            evals++; // Incremento por cada llamada a fitness()
 
-            if(fitness_actual < fitness_mejor_sol){
+            // evaluar la nueva solución
+            tFitness fitness_actual = p.fitness(sol);
+            evals++;
+
+            // si mejora (menor fitness)
+            if (fitness_actual < fitness_mejor_sol)
+            {
                 fitness_mejor_sol = fitness_actual;
-                seguir = true;
-                
-                // Actualizamos el contador de elementos de forma definitiva
+
+                // actualizar contadores de clusters
                 num_elementos[valor_antiguo - 1]--;
                 num_elementos[valor - 1]++;
-                
-                // Estrategia "el primer mejor": aceptamos y reiniciamos el vecindario [cite: 687, 688]
-                break; 
-            } else {
-                // Deshacemos el cambio si no hay mejora
+
+                // Para las gráficas
+                // p.recordFitness(evals, fitness_mejor_sol);
+
+                seguir = true;
+                // El mejor el primero
+                // en cuanto encontramos mejora, volvemos a empezar
+                break;
+            }
+            else
+            {
+                // si no mejora, deshacer el cambio
                 sol[pos] = prev_val;
             }
         }
